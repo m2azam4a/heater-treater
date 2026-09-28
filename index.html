@@ -2,15 +2,24 @@
 <html lang="id">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5, viewport-fit=cover" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>Industrial Crude Heater – Natural vs Forced Draft (3D Simulation)</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = { theme: { extend: { fontFamily: { mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] } } } };
 </script>
 <style>
-  html, body { height: 100%; }
-  body { background: radial-gradient(ellipse at 30% 20%, #0b1426 0%, #04070d 70%); }
+  html, body { height: 100%; height: 100dvh; }
+  body {
+    background: radial-gradient(ellipse at 30% 20%, #0b1426 0%, #04070d 70%);
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #app, #app canvas { width: 100%; height: 100%; display: block; }
   .panel { background: linear-gradient(160deg, rgba(15,23,42,.82), rgba(2,6,23,.78)); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
   input[type=range] {
     -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 9999px; outline: none;
@@ -25,6 +34,11 @@
   }
   input[type=range]:disabled { filter: grayscale(1); opacity: .4; cursor: not-allowed; }
   input[type=range]:disabled::-webkit-slider-thumb { cursor: not-allowed; box-shadow: none; }
+  @media (pointer: coarse) {
+    input[type=range] { height: 10px; }
+    input[type=range]::-webkit-slider-thumb { width: 24px; height: 24px; }
+    input[type=range]::-moz-range-thumb { width: 20px; height: 20px; }
+  }
   .lbl3d {
     font: 600 10px/1.2 ui-sans-serif, system-ui; letter-spacing: .06em; text-transform: uppercase;
     padding: 3px 7px; border-radius: 6px; color: #e2e8f0; white-space: nowrap;
@@ -34,6 +48,50 @@
   .glow-amber { box-shadow: 0 0 14px rgba(245,158,11,.55); }
   .scroll-thin::-webkit-scrollbar { width: 6px; }
   .scroll-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  .safe-pad {
+    padding-left: max(0.75rem, env(safe-area-inset-left));
+    padding-right: max(0.75rem, env(safe-area-inset-right));
+  }
+  /* Mobile drawer panels */
+  @media (max-width: 767px) {
+    .ui-panel {
+      position: fixed !important;
+      top: auto !important;
+      bottom: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      width: 100% !important;
+      max-width: 100% !important;
+      max-height: min(72dvh, calc(100dvh - 5.5rem)) !important;
+      border-radius: 1.25rem 1.25rem 0 0 !important;
+      transform: translateY(110%);
+      transition: transform 0.28s ease;
+      z-index: 40 !important;
+      padding-bottom: max(1rem, env(safe-area-inset-bottom)) !important;
+    }
+    .ui-panel.is-open { transform: translateY(0); }
+    .ui-panel .panel-handle {
+      display: flex; justify-content: center; padding: 0.35rem 0 0.5rem;
+    }
+    .ui-panel .panel-handle::before {
+      content: ''; width: 2.5rem; height: 0.28rem; border-radius: 999px; background: #475569;
+    }
+    #panelBackdrop {
+      display: none; position: fixed; inset: 0; z-index: 35;
+      background: rgba(2, 6, 23, 0.55); backdrop-filter: blur(2px);
+    }
+    #panelBackdrop.is-open { display: block; }
+    .legend-panel { bottom: max(0.75rem, env(safe-area-inset-bottom)) !important; }
+    .mobile-chrome { display: flex !important; }
+  }
+  @media (min-width: 768px) {
+    .ui-panel .panel-handle { display: none; }
+    .ui-panel .panel-close { display: none !important; }
+    #panelBackdrop, .mobile-chrome { display: none !important; }
+  }
+  @media (max-width: 480px) {
+    .lbl3d { font-size: 8px; padding: 2px 5px; }
+  }
 </style>
 <script type="importmap">
 {
@@ -47,30 +105,52 @@
 <body class="text-slate-200 overflow-hidden font-sans select-none">
 
 <div id="app" class="fixed inset-0"></div>
+<div id="panelBackdrop" aria-hidden="true"></div>
 
-<!-- Header -->
-<header class="fixed top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center">
-  <h1 class="text-lg md:text-xl font-bold tracking-wide text-white drop-shadow">
-    Industrial Crude Heater <span class="text-slate-400 font-medium">· Fired Heater / Process Furnace</span>
+<!-- Mobile top chrome -->
+<div class="mobile-chrome hidden fixed top-0 inset-x-0 z-30 items-center justify-between gap-2 px-3 py-2 safe-pad"
+     style="padding-top: max(0.5rem, env(safe-area-inset-top)); background: linear-gradient(180deg, rgba(2,6,23,.92), rgba(2,6,23,.55) 70%, transparent);">
+  <button id="btnOpenControl" type="button" class="min-h-[40px] px-3 rounded-xl text-xs font-bold bg-slate-800/90 border border-slate-600 text-slate-100 active:scale-95 transition">
+    Controls
+  </button>
+  <div class="flex-1 min-w-0 text-center pointer-events-none">
+    <div class="text-[11px] font-bold text-white truncate">Crude Heater</div>
+    <div id="modeLabelMobile" class="text-[10px] font-semibold text-emerald-300 truncate">Natural Draft</div>
+  </div>
+  <button id="btnOpenData" type="button" class="min-h-[40px] px-3 rounded-xl text-xs font-bold bg-slate-800/90 border border-slate-600 text-slate-100 active:scale-95 transition">
+    Data
+  </button>
+</div>
+
+<!-- Header (desktop / tablet) -->
+<header class="fixed top-3 md:top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center w-[min(920px,calc(100vw-1.5rem))] px-2 hidden md:block"
+        style="top: max(0.75rem, env(safe-area-inset-top));">
+  <h1 class="text-base md:text-xl font-bold tracking-wide text-white drop-shadow leading-tight">
+    Industrial Crude Heater <span class="text-slate-400 font-medium text-sm md:text-base">· Fired Heater / Process Furnace</span>
   </h1>
-  <p id="modeLabel" class="mt-1 inline-block text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+  <p id="modeLabel" class="mt-1 inline-block text-[11px] md:text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
     Mode: Natural Draft
   </p>
 </header>
 
 <!-- Left: Control panel -->
-<aside class="panel fixed top-4 left-4 z-20 w-[300px] max-h-[calc(100vh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl">
-  <div class="flex items-center justify-between mb-3">
+<aside id="panelControl" class="ui-panel panel fixed top-4 left-4 z-20 w-[min(300px,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl"
+       style="top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem)); left: max(1rem, env(safe-area-inset-left));">
+  <div class="panel-handle md:hidden" aria-hidden="true"></div>
+  <div class="flex items-center justify-between mb-3 gap-2">
     <h2 class="text-sm font-bold tracking-widest text-slate-300 uppercase">Control Panel</h2>
-    <span class="text-[10px] text-slate-500 font-mono">DCS · TIC-101</span>
+    <div class="flex items-center gap-2">
+      <span class="text-[10px] text-slate-500 font-mono hidden sm:inline">DCS · TIC-101</span>
+      <button type="button" class="panel-close min-h-[36px] min-w-[36px] rounded-lg text-slate-300 hover:bg-slate-700/80 border border-slate-600 text-lg leading-none" data-close-panel aria-label="Tutup panel">×</button>
+    </div>
   </div>
 
   <!-- Mode toggle -->
   <div class="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Combustion Air Mode</div>
   <div class="relative grid grid-cols-2 bg-slate-800/80 rounded-xl p-1 border border-slate-700">
     <div id="modeThumb" class="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-emerald-500 transition-all duration-300 ease-out shadow-[0_0_18px_rgba(16,185,129,.6)]"></div>
-    <button id="btnNatural" class="relative z-10 py-2 text-xs font-bold text-white">Natural Draft</button>
-    <button id="btnForced" class="relative z-10 py-2 text-xs font-bold text-slate-400">Forced Draft</button>
+    <button id="btnNatural" class="relative z-10 min-h-[40px] py-2 text-xs font-bold text-white">Natural Draft</button>
+    <button id="btnForced" class="relative z-10 min-h-[40px] py-2 text-xs font-bold text-slate-400">Forced Draft</button>
   </div>
   <p id="modeDesc" class="mt-2 text-[11px] leading-snug text-slate-400">
     Udara ditarik pasif melalui louver oleh efek buoyancy (perbedaan massa jenis gas panas di stack).
@@ -95,34 +175,40 @@
       <span class="font-mono text-sm text-sky-300"><span id="blowerVal">55</span>%</span>
     </div>
     <input id="blower" type="range" min="0" max="100" value="55" class="mt-2" style="--c:#3b82f6;--v:55%" disabled />
-    <div class="flex justify-between text-[10px] font-mono mt-1">
+    <div class="flex justify-between text-[10px] font-mono mt-1 gap-2">
       <span id="blowerNote" class="text-slate-500">Inactive – hanya pada Forced Draft</span>
-      <span id="rpm" class="text-slate-500">0 rpm</span>
+      <span id="rpm" class="text-slate-500 shrink-0">0 rpm</span>
     </div>
   </div>
 
   <!-- View buttons -->
   <div class="mt-5 text-[11px] uppercase tracking-wider text-slate-400 mb-1">Camera</div>
   <div class="grid grid-cols-3 gap-1.5">
-    <button data-view="overview" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Overview</button>
-    <button data-view="burner" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Burner</button>
-    <button data-view="stack" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Stack</button>
+    <button data-view="overview" class="viewBtn min-h-[40px] text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Overview</button>
+    <button data-view="burner" class="viewBtn min-h-[40px] text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Burner</button>
+    <button data-view="stack" class="viewBtn min-h-[40px] text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Stack</button>
   </div>
   <div class="grid grid-cols-2 gap-1.5 mt-1.5">
-    <button id="btnRotate" class="text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Auto-Rotate: Off</button>
-    <button id="btnLabels" class="text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Labels: On</button>
+    <button id="btnRotate" class="min-h-[40px] text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Auto-Rotate: Off</button>
+    <button id="btnLabels" class="min-h-[40px] text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Labels: On</button>
   </div>
 
   <p class="mt-4 text-[10px] text-slate-500 leading-snug">
-    Mouse: drag = rotate · scroll = zoom · right-drag = pan · <span class="font-mono text-slate-400">Space</span> = toggle mode
+    <span class="hidden md:inline">Mouse: drag = rotate · scroll = zoom · right-drag = pan · <span class="font-mono text-slate-400">Space</span> = toggle mode</span>
+    <span class="md:hidden">Sentuh: 1 jari = putar · cubit = zoom · 2 jari = pan</span>
   </p>
 </aside>
 
 <!-- Right: Indicators -->
-<aside class="panel fixed top-4 right-4 z-20 w-[290px] max-h-[calc(100vh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl">
-  <div class="flex items-center justify-between mb-3">
+<aside id="panelData" class="ui-panel panel fixed top-4 right-4 z-20 w-[min(290px,calc(100vw-2rem))] max-h-[calc(100dvh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl"
+       style="top: max(1rem, calc(env(safe-area-inset-top) + 0.5rem)); right: max(1rem, env(safe-area-inset-right));">
+  <div class="panel-handle md:hidden" aria-hidden="true"></div>
+  <div class="flex items-center justify-between mb-3 gap-2">
     <h2 class="text-sm font-bold tracking-widest text-slate-300 uppercase">Live Process Data</h2>
-    <span class="flex items-center gap-1 text-[10px] text-emerald-400 font-mono"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>
+    <div class="flex items-center gap-2">
+      <span class="flex items-center gap-1 text-[10px] text-emerald-400 font-mono"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>
+      <button type="button" class="panel-close min-h-[36px] min-w-[36px] rounded-lg text-slate-300 hover:bg-slate-700/80 border border-slate-600 text-lg leading-none" data-close-panel aria-label="Tutup panel">×</button>
+    </div>
   </div>
 
   <!-- Burner status -->
@@ -180,20 +266,20 @@
 </aside>
 
 <!-- Bottom: thermal legend -->
-<div class="panel fixed bottom-4 left-1/2 -translate-x-1/2 z-20 rounded-xl border border-slate-700/60 px-4 py-2.5 w-[min(560px,calc(100vw-2rem))]">
-  <div class="flex justify-between text-[10px] uppercase tracking-wider text-slate-400 mb-1">
-    <span>Temperature Gradient (flue gas / refractory)</span><span>°C</span>
+<div class="legend-panel panel fixed bottom-3 md:bottom-4 left-1/2 -translate-x-1/2 z-20 rounded-xl border border-slate-700/60 px-3 md:px-4 py-2 md:py-2.5 w-[min(560px,calc(100vw-1rem))] pointer-events-none">
+  <div class="flex justify-between text-[9px] md:text-[10px] uppercase tracking-wider text-slate-400 mb-1">
+    <span class="truncate pr-2">Temperature Gradient</span><span>°C</span>
   </div>
-  <div class="h-2.5 rounded-full" style="background:linear-gradient(90deg,#1d4ed8 0%,#06b6d4 10%,#22c55e 24%,#facc15 40%,#f97316 58%,#ef4444 76%,#fff1c1 100%)"></div>
-  <div class="relative h-3 text-[10px] font-mono text-slate-400 mt-0.5">
+  <div class="h-2 md:h-2.5 rounded-full" style="background:linear-gradient(90deg,#1d4ed8 0%,#06b6d4 10%,#22c55e 24%,#facc15 40%,#f97316 58%,#ef4444 76%,#fff1c1 100%)"></div>
+  <div class="relative h-3 text-[9px] md:text-[10px] font-mono text-slate-400 mt-0.5">
     <span class="absolute left-0">20</span>
-    <span class="absolute" style="left:21%">300</span>
+    <span class="absolute hidden sm:inline" style="left:21%">300</span>
     <span class="absolute" style="left:41%">550</span>
-    <span class="absolute" style="left:61%">800</span>
+    <span class="absolute hidden sm:inline" style="left:61%">800</span>
     <span class="absolute" style="left:80%">1050</span>
     <span class="absolute right-0">1300</span>
   </div>
-  <div class="text-[10px] text-slate-500 mt-1">Biru = udara masuk (dingin) · Hijau/Kuning = zona konveksi · Merah/Jingga = zona radiasi api. Warna coil = suhu crude (230 → 410 °C).</div>
+  <div class="text-[9px] md:text-[10px] text-slate-500 mt-1 leading-snug hidden sm:block">Biru = udara masuk (dingin) · Hijau/Kuning = zona konveksi · Merah/Jingga = zona radiasi api. Warna coil = suhu crude (230 → 410 °C).</div>
 </div>
 
 <script type="module">
@@ -226,7 +312,7 @@ const PILOT_POS = new V3(-4.82, 0.36, 0.25);
 // ============================================================
 const container = document.getElementById('app');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, window.matchMedia('(max-width: 767px)').matches ? 1.5 : 2));
 renderer.setSize(innerWidth, innerHeight);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -252,6 +338,7 @@ controls.minDistance = 4;
 controls.maxDistance = 50;
 controls.maxPolarAngle = Math.PI * 0.53;
 controls.autoRotateSpeed = 0.6;
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
@@ -1056,6 +1143,7 @@ const ui = {
   fuel: $('fuel'), blower: $('blower'), fuelVal: $('fuelVal'), blowerVal: $('blowerVal'), fuelNm3: $('fuelNm3'),
   blowerWrap: $('blowerWrap'), blowerNote: $('blowerNote'), rpm: $('rpm'),
   thumb: $('modeThumb'), bN: $('btnNatural'), bF: $('btnForced'), modeLabel: $('modeLabel'), modeDesc: $('modeDesc'),
+  modeLabelMobile: $('modeLabelMobile'),
   radT: $('radT'), radBar: $('radBar'), stackT: $('stackT'), press: $('press'), pressWrap: $('pressWrap'),
   o2: $('o2'), crudeOut: $('crudeOut'), duty: $('duty'), lambda: $('lambda'), status: $('statusBadge'), warn: $('warn'),
 };
@@ -1071,8 +1159,12 @@ function setMode(forced) {
   ui.bN.className = ui.bN.className.replace(/text-(white|slate-400)/, forced ? 'text-slate-400' : 'text-white');
   ui.bF.className = ui.bF.className.replace(/text-(white|slate-400)/, forced ? 'text-white' : 'text-slate-400');
   ui.modeLabel.textContent = forced ? 'Mode: Forced Draft' : 'Mode: Natural Draft';
-  ui.modeLabel.className = 'mt-1 inline-block text-xs font-semibold px-3 py-1 rounded-full border ' +
+  ui.modeLabel.className = 'mt-1 inline-block text-[11px] md:text-xs font-semibold px-3 py-1 rounded-full border ' +
     (forced ? 'bg-blue-500/15 text-blue-300 border-blue-400/40' : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30');
+  if (ui.modeLabelMobile) {
+    ui.modeLabelMobile.textContent = forced ? 'Forced Draft' : 'Natural Draft';
+    ui.modeLabelMobile.className = 'text-[10px] font-semibold truncate ' + (forced ? 'text-blue-300' : 'text-emerald-300');
+  }
   ui.modeDesc.textContent = forced
     ? 'FD burner biru aktif: kipas mendorong udara bertekanan ke ruang bakar. Api lebih besar, lebih kuat, turbulensi gas panas meningkat.'
     : 'Udara ditarik pasif melalui louver oleh efek buoyancy (perbedaan massa jenis gas panas di stack).';
@@ -1083,6 +1175,30 @@ function setMode(forced) {
 ui.bN.addEventListener('click', () => setMode(false));
 ui.bF.addEventListener('click', () => setMode(true));
 addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); setMode(S.modeTarget === 0); } });
+
+/* ---- Mobile panel drawers ---- */
+const panelControl = $('panelControl');
+const panelData = $('panelData');
+const panelBackdrop = $('panelBackdrop');
+const isMobileUI = () => matchMedia('(max-width: 767px)').matches;
+
+function closePanels() {
+  panelControl?.classList.remove('is-open');
+  panelData?.classList.remove('is-open');
+  panelBackdrop?.classList.remove('is-open');
+}
+function openPanel(el) {
+  if (!isMobileUI()) return;
+  closePanels();
+  el?.classList.add('is-open');
+  panelBackdrop?.classList.add('is-open');
+}
+$('btnOpenControl')?.addEventListener('click', () => openPanel(panelControl));
+$('btnOpenData')?.addEventListener('click', () => openPanel(panelData));
+panelBackdrop?.addEventListener('click', closePanels);
+document.querySelectorAll('[data-close-panel]').forEach((b) => b.addEventListener('click', closePanels));
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closePanels(); });
+matchMedia('(max-width: 767px)').addEventListener('change', (e) => { if (!e.matches) closePanels(); });
 
 const views = {
   overview: { pos: [-5, 5.5, 20], tgt: [-0.8, 1.4, 0] },
@@ -1151,15 +1267,39 @@ ui.duty.textContent = (S.Q * 1.5).toFixed(2);
 }
 
 // ============================================================
-// Resize
+// Resize (responsive canvas + DPR)
 // ============================================================
+function viewportSize() {
+  const vv = window.visualViewport;
+  return {
+    w: Math.max(1, Math.round(vv?.width ?? innerWidth)),
+    h: Math.max(1, Math.round(vv?.height ?? innerHeight))
+  };
+}
 function onResize() {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); labelRenderer.setSize(innerWidth, innerHeight);
-  const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
-  pointUniforms.uScale.value = h * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const { w, h } = viewportSize();
+  const dprCap = matchMedia('(max-width: 767px)').matches ? 1.5 : 2;
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, dprCap));
+  camera.aspect = w / h; camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  labelRenderer.setSize(w, h);
+  bloom.setSize(w, h);
+  const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
+  pointUniforms.uScale.value = buf.y * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  // Keep trend canvas sharp on retina / phone
+  const trend = document.getElementById('trend');
+  if (trend) {
+    const cssW = trend.clientWidth || 260;
+    const cssH = 64;
+    const ratio = Math.min(devicePixelRatio || 1, 2);
+    trend.width = Math.round(cssW * ratio);
+    trend.height = Math.round(cssH * ratio);
+  }
 }
 addEventListener('resize', onResize);
+addEventListener('orientationchange', () => setTimeout(onResize, 120));
+visualViewport?.addEventListener('resize', onResize);
 onResize();
 
 // ============================================================
