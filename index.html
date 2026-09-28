@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Industrial Crude Heater – Natural vs Forced Draft (3D Simulation)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: { mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] } } } };
+</script>
+<style>
+  html, body { height: 100%; }
+  body { background: radial-gradient(ellipse at 30% 20%, #0b1426 0%, #04070d 70%); }
+  .panel { background: linear-gradient(160deg, rgba(15,23,42,.82), rgba(2,6,23,.78)); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 9999px; outline: none;
+    background: linear-gradient(90deg, var(--c) 0%, var(--c) var(--v), #1e293b var(--v), #1e293b 100%);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    border: 3px solid var(--c); box-shadow: 0 0 14px var(--c); cursor: pointer;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%; background: #fff; border: 3px solid var(--c); box-shadow: 0 0 14px var(--c); cursor: pointer;
+  }
+  input[type=range]:disabled { filter: grayscale(1); opacity: .4; cursor: not-allowed; }
+  input[type=range]:disabled::-webkit-slider-thumb { cursor: not-allowed; box-shadow: none; }
+  .lbl3d {
+    font: 600 10px/1.2 ui-sans-serif, system-ui; letter-spacing: .06em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 6px; color: #e2e8f0; white-space: nowrap;
+    background: rgba(2,6,23,.72); border: 1px solid rgba(148,163,184,.35); box-shadow: 0 0 12px rgba(0,0,0,.4);
+  }
+  .glow-green { box-shadow: 0 0 14px rgba(34,197,94,.55); }
+  .glow-amber { box-shadow: 0 0 14px rgba(245,158,11,.55); }
+  .scroll-thin::-webkit-scrollbar { width: 6px; }
+  .scroll-thin::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body class="text-slate-200 overflow-hidden font-sans select-none">
+
+<div id="app" class="fixed inset-0"></div>
+
+<!-- Header -->
+<header class="fixed top-4 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center">
+  <h1 class="text-lg md:text-xl font-bold tracking-wide text-white drop-shadow">
+    Industrial Crude Heater <span class="text-slate-400 font-medium">· Fired Heater / Process Furnace</span>
+  </h1>
+  <p id="modeLabel" class="mt-1 inline-block text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-400/30">
+    Mode: Natural Draft
+  </p>
+</header>
+
+<!-- Left: Control panel -->
+<aside class="panel fixed top-4 left-4 z-20 w-[300px] max-h-[calc(100vh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-bold tracking-widest text-slate-300 uppercase">Control Panel</h2>
+    <span class="text-[10px] text-slate-500 font-mono">DCS · TIC-101</span>
+  </div>
+
+  <!-- Mode toggle -->
+  <div class="mb-1 text-[11px] uppercase tracking-wider text-slate-400">Combustion Air Mode</div>
+  <div class="relative grid grid-cols-2 bg-slate-800/80 rounded-xl p-1 border border-slate-700">
+    <div id="modeThumb" class="absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-lg bg-emerald-500 transition-all duration-300 ease-out shadow-[0_0_18px_rgba(16,185,129,.6)]"></div>
+    <button id="btnNatural" class="relative z-10 py-2 text-xs font-bold text-white">Natural Draft</button>
+    <button id="btnForced" class="relative z-10 py-2 text-xs font-bold text-slate-400">Forced Draft</button>
+  </div>
+  <p id="modeDesc" class="mt-2 text-[11px] leading-snug text-slate-400">
+    Udara ditarik pasif melalui louver oleh efek buoyancy (perbedaan massa jenis gas panas di stack).
+  </p>
+
+  <!-- Fuel slider -->
+  <div class="mt-4">
+    <div class="flex justify-between items-baseline">
+      <label for="fuel" class="text-xs font-semibold text-slate-200">Fuel Gas Flow Rate</label>
+      <span class="font-mono text-sm text-amber-300"><span id="fuelVal">60</span>%</span>
+    </div>
+    <input id="fuel" type="range" min="0" max="100" value="60" class="mt-2" style="--c:#f59e0b;--v:60%" />
+    <div class="flex justify-between text-[10px] text-slate-500 font-mono mt-1">
+      <span>0</span><span id="fuelNm3">720 Nm³/h</span><span>1200</span>
+    </div>
+  </div>
+
+  <!-- Blower slider -->
+  <div id="blowerWrap" class="mt-4 transition-opacity">
+    <div class="flex justify-between items-baseline">
+      <label for="blower" class="text-xs font-semibold text-slate-200">Air Blower Speed (%)</label>
+      <span class="font-mono text-sm text-sky-300"><span id="blowerVal">55</span>%</span>
+    </div>
+    <input id="blower" type="range" min="0" max="100" value="55" class="mt-2" style="--c:#3b82f6;--v:55%" disabled />
+    <div class="flex justify-between text-[10px] font-mono mt-1">
+      <span id="blowerNote" class="text-slate-500">Inactive – hanya pada Forced Draft</span>
+      <span id="rpm" class="text-slate-500">0 rpm</span>
+    </div>
+  </div>
+
+  <!-- View buttons -->
+  <div class="mt-5 text-[11px] uppercase tracking-wider text-slate-400 mb-1">Camera</div>
+  <div class="grid grid-cols-3 gap-1.5">
+    <button data-view="overview" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Overview</button>
+    <button data-view="burner" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Burner</button>
+    <button data-view="stack" class="viewBtn text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Stack</button>
+  </div>
+  <div class="grid grid-cols-2 gap-1.5 mt-1.5">
+    <button id="btnRotate" class="text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Auto-Rotate: Off</button>
+    <button id="btnLabels" class="text-[11px] py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700">Labels: On</button>
+  </div>
+
+  <p class="mt-4 text-[10px] text-slate-500 leading-snug">
+    Mouse: drag = rotate · scroll = zoom · right-drag = pan · <span class="font-mono text-slate-400">Space</span> = toggle mode
+  </p>
+</aside>
+
+<!-- Right: Indicators -->
+<aside class="panel fixed top-4 right-4 z-20 w-[290px] max-h-[calc(100vh-2rem)] overflow-y-auto scroll-thin rounded-2xl border border-slate-700/60 p-4 shadow-2xl">
+  <div class="flex items-center justify-between mb-3">
+    <h2 class="text-sm font-bold tracking-widest text-slate-300 uppercase">Live Process Data</h2>
+    <span class="flex items-center gap-1 text-[10px] text-emerald-400 font-mono"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>LIVE</span>
+  </div>
+
+  <!-- Burner status -->
+  <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 mb-2">
+    <div class="text-[10px] uppercase tracking-wider text-slate-400">Burner Status</div>
+    <div class="flex items-center justify-between mt-1.5">
+      <span id="statusBadge" class="text-xs font-bold px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/40 glow-green">IGNITED</span>
+      <span class="text-[11px] text-slate-300 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_8px_#38bdf8] animate-pulse"></span>Pilot Active
+      </span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-2">
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 col-span-2">
+      <div class="flex justify-between text-[10px] uppercase tracking-wider text-slate-400"><span>Radiant Section</span><span>TI-201</span></div>
+      <div class="font-mono text-2xl font-bold text-orange-300 mt-0.5"><span id="radT">0</span><span class="text-sm text-slate-400"> °C</span></div>
+      <div class="h-1.5 rounded bg-slate-800 mt-1.5 overflow-hidden"><div id="radBar" class="h-full rounded bg-gradient-to-r from-yellow-400 via-orange-500 to-red-500 transition-all duration-200" style="width:50%"></div></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Stack Temp</div>
+      <div class="font-mono text-lg font-bold text-lime-300"><span id="stackT">0</span><span class="text-xs text-slate-400"> °C</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Firebox Press.</div>
+      <div class="font-mono text-lg font-bold" id="pressWrap"><span id="press">0</span><span class="text-xs text-slate-400"> mmH₂O</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Excess O₂</div>
+      <div class="font-mono text-lg font-bold text-sky-300"><span id="o2">0</span><span class="text-xs text-slate-400"> %</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Crude Outlet</div>
+      <div class="font-mono text-lg font-bold text-rose-300"><span id="crudeOut">0</span><span class="text-xs text-slate-400"> °C</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Heat Duty</div>
+      <div class="font-mono text-lg font-bold text-amber-200"><span id="duty">0</span><span class="text-xs text-slate-400"> MW</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3">
+      <div class="text-[10px] uppercase tracking-wider text-slate-400">Air/Fuel λ</div>
+      <div class="font-mono text-lg font-bold text-violet-300"><span id="lambda">0</span></div>
+    </div>
+  </div>
+
+  <div class="rounded-xl border border-slate-700 bg-slate-900/60 p-3 mt-2">
+    <div class="flex justify-between text-[10px] uppercase tracking-wider text-slate-400 mb-1">
+      <span>Trend (60 s)</span>
+      <span><span class="text-orange-400">■</span> Radiant <span class="text-lime-400 ml-1">■</span> Stack</span>
+    </div>
+    <canvas id="trend" width="520" height="120" class="w-full h-[64px]"></canvas>
+  </div>
+
+  <div id="warn" class="mt-2 text-[11px] leading-snug rounded-lg px-2.5 py-2 bg-slate-800/60 border border-slate-700 text-slate-300">—</div>
+</aside>
+
+<!-- Bottom: thermal legend -->
+<div class="panel fixed bottom-4 left-1/2 -translate-x-1/2 z-20 rounded-xl border border-slate-700/60 px-4 py-2.5 w-[min(560px,calc(100vw-2rem))]">
+  <div class="flex justify-between text-[10px] uppercase tracking-wider text-slate-400 mb-1">
+    <span>Temperature Gradient (flue gas / refractory)</span><span>°C</span>
+  </div>
+  <div class="h-2.5 rounded-full" style="background:linear-gradient(90deg,#1d4ed8 0%,#06b6d4 10%,#22c55e 24%,#facc15 40%,#f97316 58%,#ef4444 76%,#fff1c1 100%)"></div>
+  <div class="relative h-3 text-[10px] font-mono text-slate-400 mt-0.5">
+    <span class="absolute left-0">20</span>
+    <span class="absolute" style="left:21%">300</span>
+    <span class="absolute" style="left:41%">550</span>
+    <span class="absolute" style="left:61%">800</span>
+    <span class="absolute" style="left:80%">1050</span>
+    <span class="absolute right-0">1300</span>
+  </div>
+  <div class="text-[10px] text-slate-500 mt-1">Biru = udara masuk (dingin) · Hijau/Kuning = zona konveksi · Merah/Jingga = zona radiasi api. Warna coil = suhu crude (230 → 410 °C).</div>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+
+// ============================================================
+// Helpers
+// ============================================================
+const V3 = THREE.Vector3;
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smooth01 = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
+const approach = (v, target, step) => v < target ? Math.min(target, v + step) : Math.max(target, v - step);
+const smoothTo = (v, target, dt, tau) => v + (target - v) * (1 - Math.exp(-dt / tau));
+const nz = (a, b) => Math.sin(a * 1.7 + b) * 0.5 + Math.sin(a * 2.9 + b * 1.3) * 0.3 + Math.sin(a * 5.1 + b * 2.1) * 0.2;
+
+const GROUND_Y = -2.8;
+const BURNER_X = -4.72;
+const PILOT_POS = new V3(-4.82, 0.36, 0.25);
+
+// ============================================================
+// Renderer, scene, camera
+// ============================================================
+const container = document.getElementById('app');
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+container.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+Object.assign(labelRenderer.domElement.style, { position: 'absolute', top: '0', left: '0', pointerEvents: 'none' });
+container.appendChild(labelRenderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x04070d);
+scene.fog = new THREE.FogExp2(0x04070d, 0.017);
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 250);
+camera.position.set(-5, 5.5, 20);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(-0.8, 1.4, 0);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.minDistance = 4;
+controls.maxDistance = 50;
+controls.maxPolarAngle = Math.PI * 0.53;
+controls.autoRotateSpeed = 0.6;
+
+const composer = new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene, camera));
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.9, 0.55, 0.6);
+composer.addPass(bloom);
+composer.addPass(new OutputPass());
+
+// ============================================================
+// Lights
+// ============================================================
+scene.add(new THREE.HemisphereLight(0x9bb8ff, 0x20150e, 0.7));
+const keyLight = new THREE.DirectionalLight(0xe2e8ff, 1.3);
+keyLight.position.set(8, 14, 12);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x3b82f6, 1.0);
+rimLight.position.set(-12, 6, -12);
+scene.add(rimLight);
+const fireLight = new THREE.PointLight(0xff7a2a, 0, 18, 1.3);
+scene.add(fireLight);
+const quarlLight = new THREE.PointLight(0xff5010, 0, 7, 1.6);
+quarlLight.position.set(-4.3, 0, 0);
+scene.add(quarlLight);
+const pilotLight = new THREE.PointLight(0x7fb2ff, 1.5, 2.5, 2);
+pilotLight.position.copy(PILOT_POS).add(new V3(0.2, 0.05, 0));
+scene.add(pilotLight);
+
+// ============================================================
+// Materials
+// ============================================================
+const M = {
+  steel: new THREE.MeshStandardMaterial({ color: 0x8b95a5, metalness: 0.75, roughness: 0.36, side: THREE.DoubleSide }),
+  darkSteel: new THREE.MeshStandardMaterial({ color: 0x3a4352, metalness: 0.7, roughness: 0.5 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0x9fd4ff, metalness: 0.1, roughness: 0.05, transparent: true, opacity: 0.07, depthWrite: false, side: THREE.DoubleSide }),
+  concrete: new THREE.MeshStandardMaterial({ color: 0x4b5563, roughness: 0.95 }),
+  yellow: new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.3, roughness: 0.4 }),
+  orange: new THREE.MeshStandardMaterial({ color: 0xf59e0b, metalness: 0.3, roughness: 0.45 }),
+  blue: new THREE.MeshStandardMaterial({ color: 0x1d4ed8, metalness: 0.45, roughness: 0.3 }),
+  blueDark: new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.5, roughness: 0.35 }),
+  white: new THREE.MeshStandardMaterial({ color: 0xf1f5f9, metalness: 0.25, roughness: 0.45 }),
+  red: new THREE.MeshStandardMaterial({ color: 0xdc2626, metalness: 0.3, roughness: 0.4 }),
+  black: new THREE.MeshStandardMaterial({ color: 0x05070b, metalness: 0.2, roughness: 0.9 }),
+  blade: new THREE.MeshStandardMaterial({ color: 0xcbd5e1, metalness: 0.8, roughness: 0.25, side: THREE.DoubleSide }),
+  insul: new THREE.MeshStandardMaterial({ color: 0xd6c7a1, metalness: 0.1, roughness: 0.85 }),
+  quarl: new THREE.MeshStandardMaterial({ color: 0x6b2f16, emissive: 0xff5a1a, emissiveIntensity: 0.4, roughness: 0.9, side: THREE.DoubleSide }),
+  fin: new THREE.MeshStandardMaterial({ color: 0x6b7280, metalness: 0.7, roughness: 0.4, emissive: 0x000000 }),
+  windbox: new THREE.MeshStandardMaterial({ color: 0x64748b, metalness: 0.6, roughness: 0.4, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide }),
+};
+
+// ============================================================
+// Thermal colormap
+// ============================================================
+const T_MIN = 20, T_MAX = 1300;
+const STOPS = [
+  [0.00, 0x1d4ed8], [0.10, 0x06b6d4], [0.24, 0x22c55e], [0.40, 0xfacc15],
+  [0.58, 0xf97316], [0.76, 0xef4444], [1.00, 0xfff1c1],
+].map(([u, h]) => [u, new THREE.Color(h)]);
+function thermal(T, out) {
+  const u = clamp((T - T_MIN) / (T_MAX - T_MIN), 0, 1);
+  for (let i = 1; i < STOPS.length; i++) {
+    if (u <= STOPS[i][0]) {
+      const k = (u - STOPS[i - 1][0]) / (STOPS[i][0] - STOPS[i - 1][0]);
+      return out.copy(STOPS[i - 1][1]).lerp(STOPS[i][1], k);
+    }
+  }
+  return out.copy(STOPS[STOPS.length - 1][1]);
+}
+function crudeColor(T, out) {
+  const u = clamp((T - 225) / (415 - 225), 0, 1);
+  return thermal(T_MIN + u * (1150 - T_MIN), out);
+}
+
+// ============================================================
+// Simulation state & process model (mock but physically plausible)
+// ============================================================
+const S = {
+  modeTarget: 0, m: 0, dock: 0,
+  fuel: 0.6, blower: 0.55,
+  R: 600, Tfl: 950, Tstack: 280, Tbw: 540, crudeOut: 315, P: -4.2,
+  lambda: 1.3, Q: 0.6, o2: 3.5, rich: 0, lean: 0, flameOn: 1,
+  L: 3, flameV: 2, turb: 1, buoy: 1.5, swirl: 0, flameWidth: 1.3, flameRise: 1,
+  gasSpeed: 1.5, gasTurb: 0.1,
+};
+
+function updateModel(dt) {
+  S.m = approach(S.m, S.modeTarget, dt * 3.0);
+  S.dock = approach(S.dock, S.modeTarget, dt * 0.85);
+  const f = S.fuel, b = S.blower, m = S.m;
+  const on = f > 0.01 ? 1 : 0;
+
+  // --- BASELINE UPSTREAM TREATER ---
+  // f = 0.49 mewakili 588 Nm3/h dari skala maksimal UI 1200 Nm3/h
+  const Tin_C = 32.2;  // Inlet 90 F
+  const Tout_C = 60.0; // Target Outlet 140 F
+  const deltaT_base = Tout_C - Tin_C; // 27.8 C
+
+  // 1. NERACA MASSA: SUPLAI UDARA & LAMBDA
+  const draftBuoyancy = Math.sqrt(Math.max(1, S.Tstack - 30)) / 18; 
+  const airND = Math.min(0.9, 0.15 + draftBuoyancy);
+  const airFD = 0.05 + 1.25 * b; 
+  
+  const actualAir = (airND * (1 - m) + airFD * m) * on;
+  const stoichAirReq = f; 
+  const lambda = f > 0.01 ? actualAir / stoichAirReq : 20;
+
+  // 2. KURVA EFISIENSI: THE OPTIMAL PEAK
+  const lambdaOpt = m === 1 ? 1.10 : 1.25; 
+  const combustionEff = lambda >= lambdaOpt ? 1.0 : Math.pow(lambda / lambdaOpt, 1.8);
+  const burntFuel = f * combustionEff * on;
+  const Qin = burntFuel; 
+
+  // 3. EFEK HEAT SINK (PENALTI EXCESS AIR)
+  const totalMass = f + actualAir;
+  
+  // Reset variabel awal ke baseline Tin_C, bukan suhu kilang 230 C
+  let TflT = Tin_C, StT = Tin_C, crT = Tin_C, Rt = 100, Qabsorbed = 0;
+
+  if (on) {
+    // Adiabatic Flame Temperature
+    const heatCapacityFactor = Qin / (totalMass + 0.0001); 
+    TflT = 30 + (2400 * heatCapacityFactor);
+    TflT = clamp(TflT, Tin_C, 2100);
+
+    const transferPotential = Math.pow(TflT / 1900, 2.5);
+    // Treater efisiensi lebih rendah (firetube terendam), mentok di ~60%
+    const treaterEfficiency = 0.55 + 0.05 * m; 
+    Qabsorbed = Qin * transferPotential * treaterEfficiency; 
+
+    // --- ANCHORING BASELINE ---
+    // Jika f = 0.49 (588 Nm3/h), algoritma di atas menghasilkan Qabsorbed absolut sekitar 0.05
+    // Kita paku rasio ini agar suhu mendarat presisi di delta T 27.8 C (140 F)
+    const Q_abs_ref = 0.05; 
+    const deltaT_actual = (Qabsorbed / Q_abs_ref) * deltaT_base;
+    
+    crT = Tin_C + deltaT_actual; // Suhu crude keluar
+
+    // Panas terbuang lari ke stack
+    const Qremaining = Qin - Qabsorbed;
+    StT = 40 + (Qremaining / totalMass) * 1100;
+
+    // Radiant tube menyesuaikan skala suhu 
+    Rt = 80 + (deltaT_actual * 18) + (TflT * 0.1); 
+  }
+
+  // Dinamika Tekanan
+  const natP = -(0.5 + 0.012 * (S.Tstack - 30));
+  const PT = natP + m * (18 * b * b); 
+
+  // UPDATE STATE EKSISTING SINKRON DENGAN VISUAL
+  S.R = smoothTo(S.R, Rt, dt, 2.2);
+  S.Tfl = smoothTo(S.Tfl, TflT, dt, 0.5);
+  S.Tstack = smoothTo(S.Tstack, StT, dt, 3.0);
+  S.crudeOut = smoothTo(S.crudeOut, crT, dt, 3.5);
+  S.P = smoothTo(S.P, PT, dt, 0.35);
+  S.Tbw = S.R * 0.86 + 20;
+  S.flameOn = approach(S.flameOn, on, dt * 3);
+
+  S.lambda = lambda; 
+  S.Q = Qabsorbed; 
+  
+  const o2Volume = actualAir - burntFuel;
+  S.o2 = !on ? 20.9 : clamp(20.9 * (o2Volume / (actualAir + 0.001)), 0, 20.9);
+  
+  S.rich = on ? clamp(1 - (lambda / lambdaOpt), 0, 1) * 2.0 : 0; 
+  S.lean = clamp(m * b * 1.3, 0, 1) * (lambda > 1.3 ? 1 : 0.3);
+
+  S.L = clamp((1.2 + 3.3 * f) * (1 - 0.2 * m) * (1 + S.rich * 0.8), 0.8, 8.2);
+  S.flameV = (1.4 + 1.2 * f) * (1 - m) + (2.6 + 7.5 * b) * m;
+  S.turb = 0.9 * (1 - m) + (3 + 6 * b) * m;
+  S.buoy = 1.5 * (1 - m) + 0.35 * m;
+  S.swirl = m * (1.5 + 3.5 * b);
+  S.flameWidth = 1.3 * (1 - m) + (0.8 + 0.35 * b) * m;
+  S.flameRise = 1 - m;
+  S.gasSpeed = (1.1 + 0.9 * f) * (1 - m) + (0.35 + 5.5 * b) * m;
+  S.gasTurb = 0.10 * (1 - m) + (0.3 + 0.6 * b) * m;
+}
+// Temperature field used by gas particles & refractory wall colouring
+function tempAt(x, y, z) {
+  if (y > 2.0 && x > 2.4) {
+    if (y < 3.35) return lerp(S.Tbw, S.Tstack, smooth01((y - 2.0) / 1.35));
+    return S.Tstack - 70 * clamp((y - 3.35) / 7, 0, 1);
+  }
+  if (x < -5.55) { const d = clamp((x + 6.8) / 1.25, 0, 1); return 25 + 35 * d * d; }
+  if (x < BURNER_X) return 60 + 0.5 * S.Tfl * S.flameOn * Math.pow(clamp((x + 5.55) / 0.83, 0, 1), 3);
+  const a = x - BURNER_X, L = S.L;
+  const gas = lerp(S.R * 1.04, S.Tbw, clamp(a / 9.3, 0, 1));
+  const rise = S.flameRise * Math.min(1, a / L) * a * 0.12;
+  const dy = y - rise, r2 = dy * dy + z * z;
+  const w = 0.25 + 0.55 * Math.min(1, a / L) * S.flameWidth;
+  let core = a <= L ? 1 - 0.3 * (a / L) : 0.7 * Math.exp(-(a - L) * 1.4);
+  core *= Math.exp(-r2 / (w * w)) * S.flameOn;
+  return gas + (S.Tfl - gas) * core;
+}
+
+// ============================================================
+// Geometry helpers
+// ============================================================
+function add(mesh, parent = scene) { parent.add(mesh); return mesh; }
+function pipe(points, r, mat, parent = scene) {
+  const up = new V3(0, 1, 0);
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i], b = points[i + 1];
+    const dir = new V3().subVectors(b, a); const len = dir.length();
+    const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 16), mat);
+    m.position.copy(a).addScaledVector(dir, 0.5);
+    m.quaternion.setFromUnitVectors(up, dir.normalize());
+    parent.add(m);
+    if (i > 0) { const j = new THREE.Mesh(new THREE.SphereGeometry(r * 1.15, 16, 12), mat); j.position.copy(a); parent.add(j); }
+  }
+}
+function label(text, pos, parent = scene, color = '#e2e8f0') {
+  const div = document.createElement('div');
+  div.className = 'lbl3d'; div.textContent = text; div.style.color = color;
+  const o = new CSS2DObject(div); o.position.copy(pos); parent.add(o); return o;
+}
+function valve(pos, axis, parent = scene, wheelMat = M.red) {
+  const g = new THREE.Group(); g.position.copy(pos);
+  add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), M.darkSteel), g);
+  const stem = add(new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 8), M.darkSteel), g);
+  stem.position.set(0, 0, 0.15); stem.rotation.x = Math.PI / 2;
+  const wheel = add(new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 8, 24), wheelMat), g);
+  wheel.position.z = 0.3;
+  if (axis === 'x') g.rotation.y = Math.PI / 2;
+  parent.add(g); return wheel;
+}
+
+// ============================================================
+// Ground
+// ============================================================
+const ground = add(new THREE.Mesh(new THREE.CircleGeometry(60, 64), new THREE.MeshStandardMaterial({ color: 0x0a111e, roughness: 0.95, metalness: 0.1 })));
+ground.rotation.x = -Math.PI / 2; ground.position.y = GROUND_Y;
+const grid = add(new THREE.GridHelper(60, 60, 0x1e3a5f, 0x0f1f36));
+grid.position.y = GROUND_Y + 0.01; grid.material.transparent = true; grid.material.opacity = 0.55;
+
+// ============================================================
+// Horizontal vessel (radiant section) — cutaway: back half opaque, front half glass
+// ============================================================
+const VR = 2.0, VL = 10;
+{
+  const shellBack = new THREE.CylinderGeometry(VR, VR, VL, 96, 1, true, Math.PI / 2, Math.PI);
+  shellBack.rotateZ(Math.PI / 2);
+  add(new THREE.Mesh(shellBack, M.steel));
+  const shellGlass = new THREE.CylinderGeometry(VR, VR, VL, 96, 1, true, -Math.PI / 2, Math.PI);
+  shellGlass.rotateZ(Math.PI / 2);
+  add(new THREE.Mesh(shellGlass, M.glass));
+
+  for (const x of [-5, 5]) {
+    const fl = add(new THREE.Mesh(new THREE.TorusGeometry(VR + 0.03, 0.07, 10, 96), M.darkSteel));
+    fl.rotation.y = Math.PI / 2; fl.position.x = x;
+  }
+  for (const x of [-2.5, 0, 2.5]) {
+    const st = add(new THREE.Mesh(new THREE.TorusGeometry(VR + 0.02, 0.03, 8, 96), M.darkSteel));
+    st.rotation.y = Math.PI / 2; st.position.x = x;
+  }
+  // end caps (back half steel, front half glass)
+  const lb = new THREE.RingGeometry(0.52, VR, 64, 1, -Math.PI / 2, Math.PI); lb.rotateY(Math.PI / 2); lb.translate(-5.01, 0, 0);
+  add(new THREE.Mesh(lb, M.steel));
+  const lf = new THREE.RingGeometry(0.52, VR, 64, 1, Math.PI / 2, Math.PI); lf.rotateY(Math.PI / 2); lf.translate(-5.01, 0, 0);
+  add(new THREE.Mesh(lf, M.glass));
+  const rb = new THREE.CircleGeometry(VR, 64, -Math.PI / 2, Math.PI); rb.rotateY(Math.PI / 2); rb.translate(5.01, 0, 0);
+  add(new THREE.Mesh(rb, M.steel));
+  const rf = new THREE.CircleGeometry(VR, 64, Math.PI / 2, Math.PI); rf.rotateY(Math.PI / 2); rf.translate(5.01, 0, 0);
+  add(new THREE.Mesh(rf, M.glass));
+
+  // saddle supports
+  const shape = new THREE.Shape();
+  shape.moveTo(-1.5, GROUND_Y + 0.35); shape.lineTo(1.5, GROUND_Y + 0.35);
+  for (let k = 0; k <= 24; k++) { const zz = 1.5 - 3 * k / 24; shape.lineTo(zz, -Math.sqrt((VR + 0.02) ** 2 - zz * zz)); }
+  shape.closePath();
+  for (const x of [-3.2, 3.2]) {
+    const g = new THREE.ExtrudeGeometry(shape, { depth: 0.35, bevelEnabled: false });
+    g.rotateY(Math.PI / 2); g.translate(x - 0.175, 0, 0);
+    add(new THREE.Mesh(g, M.darkSteel));
+    const foot = add(new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.35, 3.4), M.concrete));
+    foot.position.set(x, GROUND_Y + 0.175, 0);
+  }
+}
+
+// Refractory lining with dynamic temperature gradient (vertex colours)
+const liningGeo = new THREE.CylinderGeometry(1.9, 1.9, VL - 0.06, 110, 48, true, Math.PI / 2, Math.PI);
+liningGeo.rotateZ(Math.PI / 2);
+liningGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(liningGeo.attributes.position.count * 3), 3));
+add(new THREE.Mesh(liningGeo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })));
+const capLiningMat = new THREE.MeshBasicMaterial({ color: 0x331a10, side: THREE.DoubleSide });
+{
+  const l = new THREE.RingGeometry(0.52, 1.9, 48, 1, -Math.PI / 2, Math.PI); l.rotateY(Math.PI / 2); l.translate(-4.97, 0, 0);
+  add(new THREE.Mesh(l, capLiningMat));
+}
+const capLiningMatR = new THREE.MeshBasicMaterial({ color: 0x331a10, side: THREE.DoubleSide });
+{
+  const r = new THREE.CircleGeometry(1.9, 48, -Math.PI / 2, Math.PI); r.rotateY(Math.PI / 2); r.translate(4.97, 0, 0);
+  add(new THREE.Mesh(r, capLiningMatR));
+}
+
+// ============================================================
+// Crude oil coils: 2 parallel U-tubes
+// ============================================================
+const coilMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.35 });
+coilMat.onBeforeCompile = (sh) => {
+  sh.fragmentShader = sh.fragmentShader.replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += vColor.rgb * 0.5;');
+};
+const COIL_SEG = 360, COIL_RAD = 12;
+const coils = [];
+for (const zc of [-1.0, 1.0]) {
+  const pts = [];
+  const push = (x, y) => pts.push(new V3(x, y, zc));
+  for (let x = 6.0; x > -3.3; x -= 0.4) push(x, -0.6);
+  for (let k = 0; k <= 18; k++) { const th = -Math.PI / 2 - Math.PI * k / 18; push(-3.4 + 0.6 * Math.cos(th), 0.6 * Math.sin(th)); }
+  for (let x = -3.0; x <= 6.0001; x += 0.4) push(x, 0.6);
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal');
+  const geo = new THREE.TubeGeometry(curve, COIL_SEG, 0.1, COIL_RAD, false);
+  geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(geo.attributes.position.count * 3), 3));
+  add(new THREE.Mesh(geo, coilMat));
+  coils.push(geo);
+}
+// Crude headers (inlet bottom, outlet top)
+const inHeaderMat = new THREE.MeshStandardMaterial({ color: 0x3b82f6, metalness: 0.6, roughness: 0.35 });
+const outHeaderMat = new THREE.MeshStandardMaterial({ color: 0xef4444, metalness: 0.6, roughness: 0.35 });
+pipe([new V3(6.0, -0.6, -1.25), new V3(6.0, -0.6, 1.25)], 0.16, inHeaderMat);
+pipe([new V3(6.0, -0.6, 0), new V3(7.8, -0.6, 0), new V3(7.8, GROUND_Y + 0.4, 0)], 0.16, inHeaderMat);
+pipe([new V3(6.0, 0.6, -1.25), new V3(6.0, 0.6, 1.25)], 0.16, outHeaderMat);
+pipe([new V3(6.0, 0.6, 0), new V3(7.8, 0.6, 0), new V3(7.8, 2.6, 0), new V3(9.5, 2.6, 0)], 0.16, outHeaderMat);
+{
+  const c1 = add(new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 20), inHeaderMat)); c1.position.set(7.2, -0.6, 0); c1.rotation.z = Math.PI / 2;
+  const c2 = add(new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.45, 20), outHeaderMat)); c2.position.set(9.4, 2.6, 0); c2.rotation.z = -Math.PI / 2;
+}
+
+// ============================================================
+// Convection section + Stack (cutaway)
+// ============================================================
+const CX = 3.6;
+{
+  const back = add(new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.4), M.steel)); back.position.set(CX, 2.65, -0.85);
+  for (const sx of [2.7, 4.5]) {
+    const side = add(new THREE.Mesh(new THREE.PlaneGeometry(1.7, 1.4), M.steel)); side.rotation.y = Math.PI / 2; side.position.set(sx, 2.65, 0);
+  }
+  const front = add(new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.4), M.glass)); front.position.set(CX, 2.65, 0.85);
+  const frame = add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.8, 1.4, 1.7)), new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.6 })));
+  frame.position.set(CX, 2.65, 0);
+
+  // finned convection tubes (instanced fins)
+  const tubes = [];
+  for (const x of [3.05, 3.6, 4.15]) for (const y of [2.4, 2.9]) tubes.push([x, y]);
+  for (const [x, y] of tubes) {
+    const t = add(new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.7, 12), M.fin)); t.rotation.x = Math.PI / 2; t.position.set(x, y, 0);
+  }
+  const fins = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.15, 0.15, 0.015, 16), M.fin, tubes.length * 11);
+  const dm = new THREE.Object3D(); let k = 0;
+  for (const [x, y] of tubes) for (let i = 0; i < 11; i++) {
+    dm.position.set(x, y, -0.75 + i * 0.15); dm.rotation.set(Math.PI / 2, 0, 0); dm.updateMatrix(); fins.setMatrixAt(k++, dm.matrix);
+  }
+  add(fins);
+
+  // transition hood
+  const hoodB = new THREE.CylinderGeometry(0.47, 1.0, 0.6, 40, 1, true, Math.PI / 2, Math.PI); hoodB.translate(CX, 3.65, 0);
+  add(new THREE.Mesh(hoodB, M.steel));
+  const hoodF = new THREE.CylinderGeometry(0.47, 1.0, 0.6, 40, 1, true, -Math.PI / 2, Math.PI); hoodF.translate(CX, 3.65, 0);
+  add(new THREE.Mesh(hoodF, M.glass));
+
+  // stack
+  const SH = 6.3;
+  const sb = new THREE.CylinderGeometry(0.47, 0.47, SH, 40, 1, true, Math.PI / 2, Math.PI); sb.translate(CX, 3.95 + SH / 2, 0);
+  add(new THREE.Mesh(sb, M.steel));
+  const sf = new THREE.CylinderGeometry(0.47, 0.47, SH, 40, 1, true, -Math.PI / 2, Math.PI); sf.translate(CX, 3.95 + SH / 2, 0);
+  add(new THREE.Mesh(sf, M.glass));
+  for (const y of [3.95, 6.0, 8.1, 10.25]) {
+    const r = add(new THREE.Mesh(new THREE.TorusGeometry(0.49, 0.035, 8, 48), M.darkSteel)); r.rotation.x = Math.PI / 2; r.position.set(CX, y, 0);
+  }
+  // platform + handrail
+  const plat = add(new THREE.Mesh(new THREE.RingGeometry(0.5, 1.05, 40), M.darkSteel)); plat.rotation.x = -Math.PI / 2; plat.position.set(CX, 7.2, 0);
+  const rail = add(new THREE.Mesh(new THREE.TorusGeometry(1.05, 0.02, 6, 48), M.yellow)); rail.rotation.x = Math.PI / 2; rail.position.set(CX, 7.75, 0);
+  for (let i = 0; i < 8; i++) {
+    const a = i / 8 * Math.PI * 2;
+    const p = add(new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.55, 6), M.yellow)); p.position.set(CX + Math.cos(a) * 1.05, 7.47, Math.sin(a) * 1.05);
+  }
+}
+const beacon = add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff2020 })));
+beacon.position.set(CX + 0.5, 10.3, 0);
+
+// ============================================================
+// Burner: windbox, natural-draft louvers, quarl, fuel lance, pilot
+// ============================================================
+{
+  const wb = add(new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.9, 1.9), M.windbox)); wb.position.set(-6.2, 0, 0);
+  const e = add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1.25, 1.9, 1.9)), new THREE.LineBasicMaterial({ color: 0x94a3b8 })));
+  e.position.copy(wb.position);
+
+  const qg = new THREE.CylinderGeometry(0.4, 0.52, 0.85, 36, 1, true); qg.rotateZ(Math.PI / 2); qg.translate(-5.15, 0, 0);
+  add(new THREE.Mesh(qg, M.quarl));
+
+  // main fuel gas supply (permanent) + lance
+  pipe([new V3(-6.25, GROUND_Y, -1.5), new V3(-6.25, 1.6, -1.5), new V3(-6.25, 1.6, 0), new V3(-6.25, 0.95, 0)], 0.075, M.yellow);
+  pipe([new V3(-6.25, 0.95, 0), new V3(-6.25, 0, 0), new V3(-4.84, 0, 0)], 0.05, M.steel);
+  const tip = add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.06, 0.12, 16), M.darkSteel)); tip.rotation.z = Math.PI / 2; tip.position.set(-4.8, 0, 0);
+  const sw = add(new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.02, 8, 32), M.darkSteel)); sw.rotation.y = Math.PI / 2; sw.position.set(-4.86, 0, 0);
+  for (let i = 0; i < 6; i++) {
+    const v = add(new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.18, 0.05), M.darkSteel));
+    const a = i / 6 * Math.PI * 2; v.position.set(-4.86, Math.cos(a) * 0.13, Math.sin(a) * 0.13); v.rotation.x = -a; v.rotation.y = 0.5;
+  }
+  // FCV (control valve with actuator)
+  const fcv = add(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.2, 20), M.darkSteel)); fcv.position.set(-6.25, -0.9, -1.5);
+  const act = add(new THREE.Mesh(new THREE.SphereGeometry(0.26, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), M.red)); act.position.set(-6.25, -0.72, -1.5); act.rotation.z = Math.PI / 2; act.position.x += 0.12;
+  label('FCV – Fuel Gas', new V3(-6.25, -0.9, -1.9), scene, '#fde68a');
+
+  // pilot gas line & pilot burner tip
+  pipe([new V3(-5.9, GROUND_Y, -1.8), new V3(-5.9, 1.35, -1.8), new V3(-5.9, 1.35, 0.25), new V3(-5.9, 0.95, 0.25)], 0.035, M.orange);
+  pipe([new V3(-5.9, 0.95, 0.25), new V3(-5.9, 0.36, 0.25), new V3(-4.86, 0.36, 0.25)], 0.028, M.steel);
+  const pt = add(new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.035, 0.08, 12), M.darkSteel)); pt.rotation.z = Math.PI / 2; pt.position.set(-4.85, 0.36, 0.25);
+}
+const fuelWheel = valve(new V3(-6.25, 0.3, -1.5), 'x');
+
+// Natural-draft louvers (bottom of windbox)
+const louvers = [];
+{
+  const fr = add(new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.05, 1.8), new THREE.MeshStandardMaterial({ color: 0x475569, metalness: 0.6, roughness: 0.4, wireframe: true })));
+  fr.position.set(-6.2, -0.98, 0);
+  for (let i = 0; i < 6; i++) {
+    const s = add(new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.02, 1.75), M.steel));
+    s.position.set(-6.7 + i * 0.2, -0.98, 0); louvers.push(s);
+  }
+}
+// Windbox -x cover plate (hidden once FD blast tube is docked)
+const coverPlate = add(new THREE.Mesh(new THREE.CircleGeometry(0.55, 32), M.darkSteel));
+coverPlate.rotation.y = -Math.PI / 2; coverPlate.position.set(-6.84, 0, 0);
+
+// ============================================================
+// Industrial Forced Draft Burner Assembly (blue) — docks in FD mode
+// ============================================================
+const DOCK_X = -6.83;
+const fd = new THREE.Group(); fd.position.set(DOCK_X, 0, 0); scene.add(fd);
+const fdIn = new THREE.Group(); fdIn.position.set(-DOCK_X, 0, 0); fd.add(fdIn);
+let fanRotor, fanBlur;
+{
+  const body = add(new THREE.Mesh(new RoundedBoxGeometry(2.3, 1.55, 1.6, 5, 0.2), M.blue), fdIn); body.position.set(-8.25, 0.05, 0);
+  const hood = new THREE.CylinderGeometry(0.78, 0.78, 2.1, 40, 1, false, 0, Math.PI); hood.rotateZ(Math.PI / 2);
+  const hm = add(new THREE.Mesh(hood, M.blue), fdIn); hm.position.set(-8.25, 0.8, 0); hm.scale.set(1, 0.45, 1);
+  // white styling stripes (as in photo)
+  for (let i = 0; i < 5; i++) {
+    const s = add(new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.025, 0.02), M.white), fdIn); s.position.set(-7.65, -0.45 + i * 0.16, 0.81);
+    const s2 = s.clone(); s2.position.z = -0.81; fdIn.add(s2);
+  }
+  // fan intake: shroud, dark recess, rotor, grille
+  const IC = new V3(-8.8, 0.15, 0);
+  const rec = add(new THREE.Mesh(new THREE.CircleGeometry(0.5, 32), M.black), fdIn); rec.position.set(IC.x, IC.y, 0.805);
+  const sh = new THREE.CylinderGeometry(0.53, 0.53, 0.16, 40, 1, true); sh.rotateX(Math.PI / 2);
+  const shm = add(new THREE.Mesh(sh, M.blueDark), fdIn); shm.position.set(IC.x, IC.y, 0.88);
+  fanRotor = new THREE.Group(); fanRotor.position.set(IC.x, IC.y, 0.87); fdIn.add(fanRotor);
+  const hub = add(new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.12, 16), M.darkSteel), fanRotor); hub.rotation.x = Math.PI / 2;
+  for (let i = 0; i < 7; i++) {
+    const piv = new THREE.Group(); piv.rotation.z = i / 7 * Math.PI * 2; fanRotor.add(piv);
+    const bl = add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.36, 0.015), M.blade), piv); bl.position.y = 0.27; bl.rotation.y = 0.5;
+  }
+  fanBlur = add(new THREE.Mesh(new THREE.CircleGeometry(0.48, 40), new THREE.MeshBasicMaterial({ color: 0x9fb8e0, transparent: true, opacity: 0, depthWrite: false })), fdIn);
+  fanBlur.position.set(IC.x, IC.y, 0.9);
+  const gr = add(new THREE.Mesh(new THREE.TorusGeometry(0.53, 0.045, 8, 40), M.darkSteel), fdIn); gr.position.set(IC.x, IC.y, 0.96);
+  const gr2 = add(new THREE.Mesh(new THREE.TorusGeometry(0.3, 0.015, 6, 32), M.darkSteel), fdIn); gr2.position.set(IC.x, IC.y, 0.96);
+  for (let i = 0; i < 4; i++) {
+    const bar = add(new THREE.Mesh(new THREE.BoxGeometry(1.06, 0.02, 0.02), M.darkSteel), fdIn); bar.position.set(IC.x, IC.y, 0.96); bar.rotation.z = i * Math.PI / 4;
+  }
+  // motor (white) with cooling fins
+  const mot = add(new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.95, 28), M.white), fdIn); mot.rotation.z = Math.PI / 2; mot.position.set(-9.85, -0.2, 0);
+  for (let i = 0; i < 10; i++) {
+    const a = i / 10 * Math.PI * 2;
+    const fn = add(new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.05, 0.03), M.white), fdIn);
+    fn.position.set(-9.85, -0.2 + Math.cos(a) * 0.38, Math.sin(a) * 0.38); fn.rotation.x = a;
+  }
+  const cap = add(new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.36, 0.2, 28), M.darkSteel), fdIn); cap.rotation.z = Math.PI / 2; cap.position.set(-10.4, -0.2, 0);
+  const tb = add(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 0.3), M.blue), fdIn); tb.position.set(-9.8, 0.25, 0);
+  // blast tube to windbox
+  const bt = new THREE.CylinderGeometry(0.55, 0.55, 0.35, 32); bt.rotateZ(Math.PI / 2);
+  const btm = add(new THREE.Mesh(bt, M.blueDark), fdIn); btm.position.set(-6.93, 0, 0);
+  const btf = add(new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.05, 8, 40), M.darkSteel), fdIn); btf.rotation.y = Math.PI / 2; btf.position.set(-6.85, 0, 0);
+  // local control box with lamps
+  const cb = add(new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.35, 0.22), M.white), fdIn); cb.position.set(-7.5, 1.25, 0.35);
+  const lampG = add(new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0x22ff66 })), fdIn); lampG.position.set(-7.6, 1.3, 0.47);
+  const lampA = add(new THREE.Mesh(new THREE.SphereGeometry(0.035, 10, 8), new THREE.MeshBasicMaterial({ color: 0xffaa00 })), fdIn); lampA.position.set(-7.45, 1.3, 0.47);
+  // skid frame
+  for (const z of [-0.6, 0.6]) {
+    const r = add(new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.12, 0.18), M.darkSteel), fdIn); r.position.set(-8.6, -0.78, z);
+    for (const x of [-10.1, -7.2]) {
+      const leg = add(new THREE.Mesh(new THREE.BoxGeometry(0.12, -0.78 - GROUND_Y, 0.12), M.darkSteel), fdIn); leg.position.set(x, (GROUND_Y - 0.78) / 2, z);
+    }
+  }
+  // yellow fuel gas manifold / gas train (outside the inlet, as in photo)
+  pipe([new V3(-7.2, GROUND_Y, 1.25), new V3(-7.2, 1.35, 1.25), new V3(-7.2, 1.35, 0.3), new V3(-7.2, 0.85, 0.3)], 0.07, M.yellow, fdIn);
+  pipe([new V3(-10.3, GROUND_Y, -1.15), new V3(-10.3, -1.3, -1.15), new V3(-7.6, -1.3, -1.15), new V3(-7.6, 0.4, -1.15), new V3(-7.6, 0.4, -0.8)], 0.07, M.yellow, fdIn);
+  pipe([new V3(-9.4, -1.3, -1.15), new V3(-9.4, -1.3, 1.25), new V3(-7.2, -1.3, 1.25)], 0.06, M.yellow, fdIn);
+  pipe([new V3(-9.9, -0.2, 0.3), new V3(-9.9, -0.2, 0.9), new V3(-8.3, -0.9, 1.0), new V3(-7.25, -0.9, 1.25)], 0.05, M.insul, fdIn);
+  valve(new V3(-8.9, -1.3, -1.15), 'z', fdIn);
+  valve(new V3(-7.2, 0.2, 1.25), 'z', fdIn);
+  const reg = add(new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.3, 16), M.darkSteel), fdIn); reg.position.set(-8.2, -1.3, -1.15); reg.rotation.z = Math.PI / 2;
+  const regDome = add(new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), M.blue), fdIn); regDome.position.set(-8.2, -1.12, -1.15);
+  const gauge = add(new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.04, 20), M.white), fdIn); gauge.rotation.x = Math.PI / 2; gauge.position.set(-7.2, 0.7, 1.36);
+}
+const fdLabel = label('FD Burner Assembly · Blower', new V3(-8.3, 2.0, 0), fdIn, '#93c5fd');
+
+// ============================================================
+// Labels
+// ============================================================
+label('Radiant Section (Firebox)', new V3(-0.5, 2.45, 0.9), scene, '#fdba74');
+label('Convection Section', new V3(CX + 1.6, 2.9, 0.9), scene, '#bef264');
+label('Stack', new V3(CX + 0.8, 9.6, 0), scene, '#cbd5e1');
+label('Crude Coil · 2× U-Tube', new V3(-1.2, -0.85, 1.35), scene, '#fca5a5');
+label('Crude Oil In', new V3(8.3, -1.1, 0), scene, '#93c5fd');
+label('Crude Oil Out', new V3(9.2, 3.05, 0), scene, '#fca5a5');
+label('Main Burner + Pilot', new V3(-5.0, 0.95, 1.2), scene, '#fde68a');
+const louverLabel = label('Natural Draft Louver (Air In)', new V3(-6.2, -1.45, 1.3), scene, '#6ee7b7');
+
+// ============================================================
+// Point sprite material (additive glow)
+// ============================================================
+const pointUniforms = { uScale: { value: 1 } };
+function makePointsMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: pointUniforms,
+    vertexShader: /* glsl */`
+      attribute float aSize; attribute float aAlpha; attribute vec3 aColor;
+      uniform float uScale; varying vec3 vColor; varying float vAlpha;
+      void main() {
+        vColor = aColor; vAlpha = aAlpha;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aSize * uScale / max(0.1, -mv.z);
+        gl_Position = projectionMatrix * mv;
+      }`,
+    fragmentShader: /* glsl */`
+      varying vec3 vColor; varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - 0.5) * 2.0;
+        if (d > 1.0) discard;
+        float f = pow(1.0 - d, 1.6);
+        gl_FragColor = vec4(vColor * f * vAlpha, 1.0);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+function makePoints(n) {
+  const g = new THREE.BufferGeometry();
+  const mk = (k) => new THREE.BufferAttribute(new Float32Array(n * k), k).setUsage(THREE.DynamicDrawUsage);
+  g.setAttribute('position', mk(3)); g.setAttribute('aColor', mk(3)); g.setAttribute('aSize', mk(1)); g.setAttribute('aAlpha', mk(1));
+  const pts = new THREE.Points(g, makePointsMaterial()); pts.frustumCulled = false; scene.add(pts);
+  return { g, pos: g.attributes.position.array, col: g.attributes.aColor.array, size: g.attributes.aSize.array, alpha: g.attributes.aAlpha.array };
+}
+function flagUpdate(p) { for (const k of ['position', 'aColor', 'aSize', 'aAlpha']) p.g.attributes[k].needsUpdate = true; }
+
+// ============================================================
+// Air / flue-gas particle paths (arc-length LUT)
+// ============================================================
+function spreadAt(p) {
+  if (p.x > 2.4 && p.y > 3.35) return p.y > 10.2 ? 0.4 + (p.y - 10.2) * 0.45 : 0.36;
+  if (p.x > 2.4 && p.y > 2.0) return 0.68;
+  if (p.x > -4.65) {
+    const grow = lerp(0.35, 1.45, smooth01((p.x + 4.65) / 2.6));
+    return lerp(grow, 0.75, smooth01((p.x - 2.2) / 1.2));
+  }
+  if (p.x > -5.6) return 0.33;
+  if (p.z > 0.9) return 0.42;
+  if (p.y < -1.0) return 0.55;
+  return 0.6;
+}
+function turbAt(p) {
+  if (p.x > 2.4 && p.y > 3.35) return 0.35;
+  if (p.x > 2.4 && p.y > 2.0) return 0.55;
+  if (p.x > -4.65) return 1.0;
+  if (p.x > -5.6) return 0.4;
+  return 0.3;
+}
+function buildPath(ctrl) {
+  const curve = new THREE.CatmullRomCurve3(ctrl, false, 'centripetal');
+  const N = 700, P = curve.getSpacedPoints(N), len = curve.getLength();
+  const F = () => new Float32Array(N + 1);
+  const d = { N, len, px: F(), py: F(), pz: F(), ax: F(), ay: F(), az: F(), bx: F(), by: F(), bz: F(), sp: F(), vf: F(), tz: F() };
+  const T = new V3(), n1 = new V3(), n2 = new V3();
+  for (let i = 0; i <= N; i++) {
+    const p = P[i];
+    T.subVectors(P[Math.min(N, i + 1)], P[Math.max(0, i - 1)]).normalize();
+    const up = Math.abs(T.z) > 0.9 ? new V3(0, 1, 0) : new V3(0, 0, 1);
+    n1.crossVectors(T, up).normalize(); n2.crossVectors(T, n1).normalize();
+    d.px[i] = p.x; d.py[i] = p.y; d.pz[i] = p.z;
+    d.ax[i] = n1.x; d.ay[i] = n1.y; d.az[i] = n1.z;
+    d.bx[i] = n2.x; d.by[i] = n2.y; d.bz[i] = n2.z;
+    const s = spreadAt(p); d.sp[i] = s;
+    d.vf[i] = clamp(0.55 / (s + 0.12), 0.3, 2.4);
+    d.tz[i] = turbAt(p);
+  }
+  return d;
+}
+const tail = [
+  [-3.5, 0.03, 0], [-1, 0.08, 0], [1.5, 0.15, 0], [2.9, 0.35, 0], [3.55, 1.0, 0], [3.6, 1.8, 0],
+  [3.6, 2.6, 0], [3.6, 3.4, 0], [3.6, 4.5, 0], [3.6, 7, 0], [3.6, 10.2, 0], [3.6, 11.2, 0], [3.6, 12.8, 0],
+];
+const toV = (a) => a.map(([x, y, z]) => new V3(x, y, z));
+const PATHS = [
+  buildPath(toV([[-6.2, -2.75, 0], [-6.2, -1.8, 0], [-6.2, -0.95, 0], [-6.1, -0.3, 0], [-5.6, -0.02, 0], [BURNER_X, 0, 0], ...tail])),
+  buildPath(toV([[-8.8, 0.15, 3.0], [-8.8, 0.15, 1.4], [-8.8, 0.12, 0.6], [-8.2, 0.05, 0.05], [-7.3, 0, 0], [-6.5, 0, 0], [-5.6, 0, 0], [BURNER_X, 0, 0], ...tail])),
+];
+
+// ============================================================
+// Gas particle system
+// ============================================================
+const GAS_N = 3000;
+const gas = makePoints(GAS_N);
+const gT = new Float32Array(GAS_N), gU = new Float32Array(GAS_N), gV = new Float32Array(GAS_N);
+const gSeed = new Float32Array(GAS_N), gSpd = new Float32Array(GAS_N), gPid = new Uint8Array(GAS_N);
+function diskSample(i) { const r = Math.sqrt(Math.random()), a = Math.random() * Math.PI * 2; gU[i] = r * Math.cos(a); gV[i] = r * Math.sin(a); }
+for (let i = 0; i < GAS_N; i++) { gT[i] = Math.random(); gPid[i] = 0; diskSample(i); gSeed[i] = Math.random() * 100; gSpd[i] = 0.75 + Math.random() * 0.5; }
+
+const tmpC = new THREE.Color();
+function updateGas(dt, time) {
+  const { pos, col, size, alpha } = gas;
+  for (let i = 0; i < GAS_N; i++) {
+    let p = PATHS[gPid[i]];
+    let t = gT[i];
+    let fi = t * p.N, i0 = Math.min(p.N - 1, fi | 0);
+    t += dt * S.gasSpeed * p.vf[i0] * gSpd[i] / p.len;
+    if (t >= 1) { t = Math.random() * 0.01; gPid[i] = S.modeTarget; p = PATHS[gPid[i]]; diskSample(i); }
+    gT[i] = t;
+    fi = t * p.N; i0 = Math.min(p.N - 1, fi | 0);
+    const fr = fi - i0, i1 = i0 + 1;
+    const L = (arr) => arr[i0] + (arr[i1] - arr[i0]) * fr;
+    const s = L(p.sp), amp = S.gasTurb * L(p.tz), sd = gSeed[i];
+    const ph = time * (1.2 + S.gasTurb * 4);
+    const ox = gU[i] * s + nz(ph, sd) * amp;
+    const oy = gV[i] * s + nz(ph * 1.13, sd * 1.7 + 3) * amp;
+    let x = L(p.px) + L(p.ax) * ox + L(p.bx) * oy;
+    let y = L(p.py) + L(p.ay) * ox + L(p.by) * oy;
+    let z = L(p.pz) + L(p.az) * ox + L(p.bz) * oy;
+    if (x > -4.9 && x < 4.9 && y < 1.95) {
+      const r = Math.hypot(y, z);
+      if (r > 1.78) { const k = 1.78 / r; y *= k; z *= k; }
+    }
+    const T = tempAt(x, y, z);
+    thermal(T, tmpC);
+    const heat = clamp((T - 150) / 900, 0, 1);
+    const br = 0.45 + 1.0 * heat;
+    const j = i * 3;
+    pos[j] = x; pos[j + 1] = y; pos[j + 2] = z;
+    col[j] = tmpC.r * br; col[j + 1] = tmpC.g * br; col[j + 2] = tmpC.b * br;
+    size[i] = 0.1 + 0.14 * heat;
+    alpha[i] = 0.5 * clamp(0.45 / s, 0.28, 1) * Math.min(1, t / 0.02) * (t > 0.9 ? (1 - t) / 0.1 : 1);
+  }
+  flagUpdate(gas);
+}
+
+// ============================================================
+// Main flame particle system
+// ============================================================
+const FL_N = 2600;
+const fl = makePoints(FL_N);
+const fP = new Float32Array(FL_N * 3), fVel = new Float32Array(FL_N * 3);
+const fAge = new Float32Array(FL_N), fLife = new Float32Array(FL_N).fill(1), fSeed = new Float32Array(FL_N);
+const fAlive = new Uint8Array(FL_N);
+let flCursor = 0, flAccum = 0;
+const C = {
+  coreN: new THREE.Color(1.0, 0.85, 0.45), coreF: new THREE.Color(0.55, 0.75, 1.0),
+  mid: new THREE.Color(1.0, 0.55, 0.12), midRich: new THREE.Color(0.9, 0.33, 0.05),
+  outer: new THREE.Color(0.95, 0.22, 0.03), end: new THREE.Color(0.25, 0.04, 0.01), endRich: new THREE.Color(0.1, 0.04, 0.03),
+};
+const cc = new THREE.Color(), cm = new THREE.Color(), ce = new THREE.Color();
+
+function spawnFlame(i) {
+  const rad = lerp(0.2, 0.12, S.m);
+  const r = Math.sqrt(Math.random()) * rad, a = Math.random() * Math.PI * 2;
+  const j = i * 3;
+  fP[j] = BURNER_X + Math.random() * 0.1; fP[j + 1] = r * Math.cos(a); fP[j + 2] = r * Math.sin(a);
+  const sv = lerp(0.9, 0.6, S.m);
+  fVel[j] = S.flameV * (0.75 + 0.5 * Math.random());
+  fVel[j + 1] = (Math.random() - 0.5) * sv; fVel[j + 2] = (Math.random() - 0.5) * sv;
+  fAge[i] = 0; fLife[i] = (S.L / S.flameV) * (0.55 + 0.6 * Math.random()); fSeed[i] = Math.random() * 100; fAlive[i] = 1;
+}
+function updateFlame(dt, time) {
+  const avgLife = (S.L / S.flameV) * 0.85;
+  const emit = S.flameOn * (0.35 + 0.65 * S.fuel);
+  flAccum += FL_N * 0.85 * emit / avgLife * dt;
+  let tries = 0;
+  while (flAccum >= 1 && tries < FL_N) {
+    if (!fAlive[flCursor]) { spawnFlame(flCursor); flAccum -= 1; }
+    flCursor = (flCursor + 1) % FL_N; tries++;
+  }
+  if (tries >= FL_N) flAccum = 0;
+
+  cc.copy(C.coreN).lerp(C.coreF, S.lean);
+  cm.copy(C.mid).lerp(C.midRich, S.rich);
+  ce.copy(C.end).lerp(C.endRich, S.rich);
+  const boost = 1 + 0.5 * S.m * S.blower;
+  const wf = lerp(1.25, 0.8, S.m);
+  const sizeK = 0.7 + 0.5 * S.fuel;
+  const tn = time * 6;
+  const { pos, col, size, alpha } = fl;
+
+  for (let i = 0; i < FL_N; i++) {
+    const j = i * 3;
+    if (!fAlive[i]) { size[i] = 0; alpha[i] = 0; continue; }
+    fAge[i] += dt;
+    const a = fAge[i] / fLife[i];
+    if (a >= 1) { fAlive[i] = 0; size[i] = 0; alpha[i] = 0; continue; }
+    const sd = fSeed[i];
+    let x = fP[j], y = fP[j + 1], z = fP[j + 2];
+    fVel[j + 1] += (S.buoy * (0.3 + a) + Math.sin(x * 2.3 + tn + sd) * S.turb) * dt;
+    fVel[j + 2] += Math.cos(x * 2.9 - tn * 1.3 + sd * 1.7) * S.turb * dt;
+    fVel[j] *= 1 - 0.25 * dt;
+    x += fVel[j] * dt; y += fVel[j + 1] * dt; z += fVel[j + 2] * dt;
+    if (S.swirl > 0) {
+      const ang = S.swirl * dt * (1 - a), cs = Math.cos(ang), sn = Math.sin(ang);
+      const ny = y * cs - z * sn; z = y * sn + z * cs; y = ny;
+    }
+    const r = Math.hypot(y, z);
+    if (r > 1.65) { const k = 1.65 / r; y *= k; z *= k; fAge[i] += dt * 2; }
+    if (x > 4.6) fAge[i] = fLife[i];
+    fP[j] = x; fP[j + 1] = y; fP[j + 2] = z;
+
+    let br;
+    if (a < 0.18) { tmpC.copy(cc).lerp(cm, a / 0.18); br = 2.2; }
+    else if (a < 0.55) { const k = (a - 0.18) / 0.37; tmpC.copy(cm).lerp(C.outer, k); br = lerp(2.2, 1.4, k); }
+    else { const k = (a - 0.55) / 0.45; tmpC.copy(C.outer).lerp(ce, k); br = lerp(1.4, 0.3, k); }
+    br *= boost * (1 - 0.35 * S.rich);
+    pos[j] = x; pos[j + 1] = y; pos[j + 2] = z;
+    col[j] = tmpC.r * br; col[j + 1] = tmpC.g * br; col[j + 2] = tmpC.b * br;
+    size[i] = (0.16 + 0.45 * a * wf) * sizeK;
+    alpha[i] = 0.16 * Math.min(1, a / 0.06) * (1 - a);
+  }
+  flagUpdate(fl);
+}
+
+// ============================================================
+// Pilot flame (always on)
+// ============================================================
+const PI_N = 220;
+const pl = makePoints(PI_N);
+const pP = new Float32Array(PI_N * 3), pVel = new Float32Array(PI_N * 3), pAge = new Float32Array(PI_N), pLife = new Float32Array(PI_N);
+function spawnPilot(i) {
+  const j = i * 3;
+  pP[j] = PILOT_POS.x; pP[j + 1] = PILOT_POS.y + (Math.random() - 0.5) * 0.04; pP[j + 2] = PILOT_POS.z + (Math.random() - 0.5) * 0.04;
+  pVel[j] = (0.6 + Math.random() * 0.4) * (1 + 1.5 * S.m * S.blower);
+  pVel[j + 1] = 0.15 + Math.random() * 0.2; pVel[j + 2] = (Math.random() - 0.5) * 0.15;
+  pAge[i] = 0; pLife[i] = 0.18 + Math.random() * 0.22;
+}
+for (let i = 0; i < PI_N; i++) { spawnPilot(i); pAge[i] = Math.random() * pLife[i]; }
+const pBlue = new THREE.Color(0.3, 0.5, 1.0), pYel = new THREE.Color(1.0, 0.7, 0.25);
+function updatePilot(dt, time) {
+  const { pos, col, size, alpha } = pl;
+  for (let i = 0; i < PI_N; i++) {
+    const j = i * 3;
+    pAge[i] += dt;
+    if (pAge[i] >= pLife[i]) spawnPilot(i);
+    const a = pAge[i] / pLife[i];
+    pP[j] += pVel[j] * dt; pP[j + 1] += (pVel[j + 1] + Math.sin(time * 30 + i) * 0.1) * dt; pP[j + 2] += pVel[j + 2] * dt;
+    tmpC.copy(pBlue).lerp(pYel, smooth01(a * 1.6));
+    const br = 2.2 * (1 - a);
+    pos[j] = pP[j]; pos[j + 1] = pP[j + 1]; pos[j + 2] = pP[j + 2];
+    col[j] = tmpC.r * br; col[j + 1] = tmpC.g * br; col[j + 2] = tmpC.b * br;
+    size[i] = 0.06 + 0.08 * a;
+    alpha[i] = 0.6;
+  }
+  flagUpdate(pl);
+}
+
+// ============================================================
+// Dynamic colouring: refractory lining, coils, headers, fins
+// ============================================================
+const liningBase = new THREE.Color(0.09, 0.06, 0.05);
+function updateLining() {
+  const p = liningGeo.attributes.position.array, c = liningGeo.attributes.color.array;
+  for (let i = 0; i < p.length; i += 3) {
+    const T = tempAt(p[i], p[i + 1], p[i + 2]);
+    thermal(T, tmpC);
+    const glow = clamp((T - 400) / 800, 0, 1);
+    const k = 0.05 + 0.75 * glow * glow;
+    c[i] = liningBase.r + tmpC.r * k; c[i + 1] = liningBase.g + tmpC.g * k; c[i + 2] = liningBase.b + tmpC.b * k;
+  }
+  liningGeo.attributes.color.needsUpdate = true;
+  const setCap = (mat, x) => {
+    const T = tempAt(x, 0.8, -1.2); thermal(T, tmpC);
+    const glow = clamp((T - 400) / 800, 0, 1), k = 0.05 + 0.75 * glow * glow;
+    mat.color.setRGB(liningBase.r + tmpC.r * k, liningBase.g + tmpC.g * k, liningBase.b + tmpC.b * k);
+  };
+  setCap(capLiningMat, -4.6); setCap(capLiningMatR, 4.9);
+}
+function updateCoils(time) {
+  const Tin = 230, Tout = S.crudeOut;
+  for (const geo of coils) {
+    const c = geo.attributes.color.array;
+    for (let i = 0; i <= COIL_SEG; i++) {
+      const u = i / COIL_SEG;
+      const T = Tin + (Tout - Tin) * smooth01((u - 0.06) / 0.88);
+      crudeColor(T, tmpC);
+      const stripe = 0.78 + 0.22 * Math.sin(u * 120 - time * 5);
+      const r = tmpC.r * stripe, g = tmpC.g * stripe, b = tmpC.b * stripe;
+      for (let k = 0; k <= COIL_RAD; k++) { const v = (i * (COIL_RAD + 1) + k) * 3; c[v] = r; c[v + 1] = g; c[v + 2] = b; }
+    }
+    geo.attributes.color.needsUpdate = true;
+  }
+  crudeColor(Tin, inHeaderMat.color);
+  crudeColor(Tout, outHeaderMat.color);
+  thermal(S.Tbw * 0.8, tmpC); M.fin.emissive.copy(tmpC).multiplyScalar(0.18);
+  thermal(S.Tfl, tmpC); M.quarl.emissive.copy(tmpC); M.quarl.emissiveIntensity = 0.25 + 0.6 * S.flameOn;
+}
+
+// ============================================================
+// UI wiring
+// ============================================================
+const $ = (id) => document.getElementById(id);
+const ui = {
+  fuel: $('fuel'), blower: $('blower'), fuelVal: $('fuelVal'), blowerVal: $('blowerVal'), fuelNm3: $('fuelNm3'),
+  blowerWrap: $('blowerWrap'), blowerNote: $('blowerNote'), rpm: $('rpm'),
+  thumb: $('modeThumb'), bN: $('btnNatural'), bF: $('btnForced'), modeLabel: $('modeLabel'), modeDesc: $('modeDesc'),
+  radT: $('radT'), radBar: $('radBar'), stackT: $('stackT'), press: $('press'), pressWrap: $('pressWrap'),
+  o2: $('o2'), crudeOut: $('crudeOut'), duty: $('duty'), lambda: $('lambda'), status: $('statusBadge'), warn: $('warn'),
+};
+function setSliderFill(el) { el.style.setProperty('--v', el.value + '%'); }
+ui.fuel.addEventListener('input', () => { S.fuel = ui.fuel.value / 100; ui.fuelVal.textContent = ui.fuel.value; ui.fuelNm3.textContent = Math.round(S.fuel * 1200) + ' Nm³/h'; setSliderFill(ui.fuel); });
+ui.blower.addEventListener('input', () => { S.blower = ui.blower.value / 100; ui.blowerVal.textContent = ui.blower.value; setSliderFill(ui.blower); });
+
+function setMode(forced) {
+  S.modeTarget = forced ? 1 : 0;
+  ui.thumb.style.left = forced ? 'calc(50% + 0px)' : '4px';
+  ui.thumb.className = ui.thumb.className.replace(/bg-\S+-500/, forced ? 'bg-blue-500' : 'bg-emerald-500');
+  ui.thumb.style.boxShadow = forced ? '0 0 18px rgba(59,130,246,.7)' : '0 0 18px rgba(16,185,129,.6)';
+  ui.bN.className = ui.bN.className.replace(/text-(white|slate-400)/, forced ? 'text-slate-400' : 'text-white');
+  ui.bF.className = ui.bF.className.replace(/text-(white|slate-400)/, forced ? 'text-white' : 'text-slate-400');
+  ui.modeLabel.textContent = forced ? 'Mode: Forced Draft' : 'Mode: Natural Draft';
+  ui.modeLabel.className = 'mt-1 inline-block text-xs font-semibold px-3 py-1 rounded-full border ' +
+    (forced ? 'bg-blue-500/15 text-blue-300 border-blue-400/40' : 'bg-emerald-500/15 text-emerald-300 border-emerald-400/30');
+  ui.modeDesc.textContent = forced
+    ? 'FD burner biru aktif: kipas mendorong udara bertekanan ke ruang bakar. Api lebih besar, lebih kuat, turbulensi gas panas meningkat.'
+    : 'Udara ditarik pasif melalui louver oleh efek buoyancy (perbedaan massa jenis gas panas di stack).';
+  ui.blower.disabled = !forced;
+  ui.blowerNote.textContent = forced ? 'Active – FD fan online' : 'Inactive – hanya pada Forced Draft';
+  ui.blowerNote.className = forced ? 'text-sky-400' : 'text-slate-500';
+}
+ui.bN.addEventListener('click', () => setMode(false));
+ui.bF.addEventListener('click', () => setMode(true));
+addEventListener('keydown', (e) => { if (e.code === 'Space' && e.target.tagName !== 'INPUT') { e.preventDefault(); setMode(S.modeTarget === 0); } });
+
+const views = {
+  overview: { pos: [-5, 5.5, 20], tgt: [-0.8, 1.4, 0] },
+  burner: { pos: [-12.5, 2.2, 7.5], tgt: [-6.2, 0, 0] },
+  stack: { pos: [10, 8.5, 11], tgt: [3.6, 4.5, 0] },
+};
+let tween = null;
+document.querySelectorAll('.viewBtn').forEach((b) => b.addEventListener('click', () => {
+  const v = views[b.dataset.view];
+  tween = { t: 0, p0: camera.position.clone(), t0: controls.target.clone(), p1: new V3(...v.pos), t1: new V3(...v.tgt) };
+}));
+$('btnRotate').addEventListener('click', (e) => { controls.autoRotate = !controls.autoRotate; e.target.textContent = 'Auto-Rotate: ' + (controls.autoRotate ? 'On' : 'Off'); });
+let labelsOn = true;
+$('btnLabels').addEventListener('click', (e) => { labelsOn = !labelsOn; labelRenderer.domElement.style.display = labelsOn ? '' : 'none'; e.target.textContent = 'Labels: ' + (labelsOn ? 'On' : 'Off'); });
+
+// Trend chart
+const trendCv = $('trend'), tctx = trendCv.getContext('2d');
+const trendR = [], trendS = [];
+function drawTrend() {
+  const w = trendCv.width, h = trendCv.height;
+  tctx.clearRect(0, 0, w, h);
+  tctx.strokeStyle = 'rgba(148,163,184,.12)'; tctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { tctx.beginPath(); tctx.moveTo(0, h * i / 4); tctx.lineTo(w, h * i / 4); tctx.stroke(); }
+  const plot = (arr, color) => {
+    tctx.strokeStyle = color; tctx.lineWidth = 3; tctx.beginPath();
+    arr.forEach((v, i) => { const x = (i / 239) * w, y = h - clamp((v - 100) / 1100, 0, 1) * (h - 6) - 3; i ? tctx.lineTo(x, y) : tctx.moveTo(x, y); });
+    tctx.stroke();
+  };
+  plot(trendS, '#a3e635'); plot(trendR, '#fb923c');
+}
+
+let lastStatus = '';
+function updateUI(time) {
+  const jitter = (a) => Math.sin(time * 3.1) * a + Math.sin(time * 7.7) * a * 0.5;
+  const R = S.R + jitter(1.5), St = S.Tstack + jitter(0.8), P = S.P + jitter(0.08);
+  ui.radT.textContent = R.toFixed(0);
+  ui.radBar.style.width = clamp((R - 200) / 900 * 100, 2, 100) + '%';
+  ui.stackT.textContent = St.toFixed(0);
+  ui.press.textContent = (P > 0 ? '+' : '') + P.toFixed(1);
+  ui.pressWrap.className = 'font-mono text-lg font-bold ' + (P > 0 ? 'text-rose-300' : 'text-emerald-300');
+  ui.o2.textContent = S.o2.toFixed(1);
+  ui.crudeOut.textContent = S.crudeOut.toFixed(0);
+  // Kapasitas rasional Heater Treater (1.5 MW / ~5 MMBtu/hr)
+ui.duty.textContent = (S.Q * 1.5).toFixed(2);
+  ui.lambda.textContent = S.fuel < 0.03 ? '—' : S.lambda.toFixed(2);
+  ui.rpm.textContent = Math.round(S.m * S.blower * 1780) + ' rpm';
+
+  const ign = S.fuel >= 0.03;
+  const st = ign ? 'IGNITED' : 'PILOT ACTIVE';
+  if (st !== lastStatus) {
+    lastStatus = st;
+    ui.status.textContent = st;
+    ui.status.className = 'text-xs font-bold px-2.5 py-1 rounded-md border ' + (ign
+      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/40 glow-green'
+      : 'bg-amber-500/20 text-amber-300 border-amber-400/40 glow-amber');
+  }
+
+  let msg, cls;
+  if (!ign) { msg = 'Main burner OFF – hanya pilot flame yang menyala (hot standby). Naikkan Fuel Gas Flow untuk menyalakan main burner.'; cls = 'text-amber-200 border-amber-500/40 bg-amber-500/10'; }
+  else if (S.lambda < 0.97) { msg = '⚠ Air-deficient (λ < 1): pembakaran tidak sempurna, risiko CO & soot. ' + (S.modeTarget ? 'Naikkan Air Blower Speed.' : 'Natural draft tidak cukup – pertimbangkan Forced Draft.'); cls = 'text-rose-200 border-rose-500/40 bg-rose-500/10'; }
+  else if (S.o2 > 7) { msg = '⚠ Excess air terlalu tinggi (O₂ > 7%): panas terbuang ke stack, efisiensi turun. Kurangi blower / naikkan fuel.'; cls = 'text-yellow-200 border-yellow-500/40 bg-yellow-500/10'; }
+  else if (S.modeTarget) { msg = 'Forced Draft: firebox bertekanan positif – udara didorong fan FD, pencampuran & intensitas pembakaran lebih tinggi.'; cls = 'text-sky-200 border-sky-500/40 bg-sky-500/10'; }
+  else { msg = 'Natural Draft: firebox bertekanan negatif – udara ditarik oleh buoyancy gas panas di stack. Operasi stabil.'; cls = 'text-emerald-200 border-emerald-500/40 bg-emerald-500/10'; }
+  ui.warn.textContent = msg;
+  ui.warn.className = 'mt-2 text-[11px] leading-snug rounded-lg px-2.5 py-2 border ' + cls;
+}
+
+// ============================================================
+// Resize
+// ============================================================
+function onResize() {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); labelRenderer.setSize(innerWidth, innerHeight);
+  const h = renderer.getDrawingBufferSize(new THREE.Vector2()).y;
+  pointUniforms.uScale.value = h * 0.5 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+}
+addEventListener('resize', onResize);
+onResize();
+
+// ============================================================
+// Animation loop
+// ============================================================
+const clock = new THREE.Clock();
+let uiTimer = 0, trendTimer = 0, frame = 0;
+const easeIO = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = Math.min(clock.getDelta(), 0.05);
+  const time = clock.elapsedTime;
+  frame++;
+
+  updateModel(dt);
+
+  // FD assembly rise-in, louvers, fan
+  const e = easeIO(S.dock);
+  fd.visible = S.dock > 0.001;
+  fd.position.y = -(1 - e) * 4.8;
+  fdLabel.visible = S.dock > 0.9;
+  coverPlate.visible = S.dock < 0.95;
+  louverLabel.visible = S.m < 0.5;
+  const open = (1 - S.m) * 1.25;
+  for (const l of louvers) l.rotation.z = open;
+  const w = S.m * S.blower * 38;
+  fanRotor.rotation.z -= w * dt;
+  fanBlur.material.opacity = clamp(w / 38, 0, 1) * 0.35;
+  fuelWheel.rotation.z = S.fuel * Math.PI * 2;
+
+  updateGas(dt, time);
+  updateFlame(dt, time);
+  updatePilot(dt, time);
+  if (frame % 2 === 0) updateLining();
+  updateCoils(time);
+
+  // fire lighting & glow
+  const flick = 0.85 + 0.1 * Math.sin(time * 23) + 0.05 * Math.sin(time * 57);
+  fireLight.position.set(BURNER_X + S.L * 0.45, 0.1 + S.flameRise * 0.3, 0.3);
+  fireLight.intensity = S.flameOn * (8 + 22 * S.Q) * flick;
+  thermal(S.Tfl, fireLight.color); fireLight.color.lerp(new THREE.Color(1, 0.45, 0.12), 0.5);
+  quarlLight.intensity = S.flameOn * (4 + 10 * S.Q) * flick;
+  pilotLight.intensity = 1.2 + 0.4 * Math.sin(time * 31);
+  bloom.strength = 0.65 + 0.45 * S.flameOn * (0.4 * S.fuel + 0.6 * S.m * S.blower);
+  beacon.material.color.setRGB(Math.sin(time * 4) > 0.3 ? 3 : 0.15, 0.05, 0.05);
+
+  if (tween) {
+    tween.t = Math.min(1, tween.t + dt / 1.3);
+    const k = easeIO(tween.t);
+    camera.position.lerpVectors(tween.p0, tween.p1, k);
+    controls.target.lerpVectors(tween.t0, tween.t1, k);
+    if (tween.t >= 1) tween = null;
+  }
+  controls.update();
+
+  uiTimer += dt; trendTimer += dt;
+  if (uiTimer > 0.1) { uiTimer = 0; updateUI(time); }
+  if (trendTimer > 0.25) {
+    trendTimer = 0;
+    trendR.push(S.R); trendS.push(S.Tstack);
+    if (trendR.length > 240) { trendR.shift(); trendS.shift(); }
+    drawTrend();
+  }
+
+  composer.render();
+  labelRenderer.render(scene, camera);
+}
+setMode(false);
+animate();
+</script>
+</body>
+</html>
